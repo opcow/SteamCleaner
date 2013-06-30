@@ -18,7 +18,6 @@
 
 #include "Groups.h"
 
-
 CGroups::CGroups(void) : m_count(0)
 {
 
