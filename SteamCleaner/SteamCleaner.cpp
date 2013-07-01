@@ -45,6 +45,8 @@ using namespace std;
 HINSTANCE ghInst;
 NOTIFYICONDATA nidApp;
 
+WCHAR gszProcessName[] = L"steam.exe";
+
 TCHAR gszTitle[MAX_LOADSTRING];
 TCHAR gszWindowClass[MAX_LOADSTRING];
 TCHAR gszApplicationToolTip[MAX_LOADSTRING];
@@ -104,7 +106,6 @@ bool MatchGroup(HWND hwnd)
 
 	text_length = GetWindowText(hwnd, wnd_text, MAX_TEXT-1);
 
-
 	tail_length = wcsnlen(match_tail, MAX_TEXT);
 	start_pos = text_length - tail_length;
 
@@ -163,7 +164,7 @@ void watcher_thread() {
 void get_pid_thread() {
 	while (!gbStopThread)
 	{
-		gSteamPID = FindProcess(L"steam.exe");
+		gSteamPID = FindProcess(gszProcessName);
 		std::this_thread::sleep_for(std::chrono::minutes(2));
 	}
 }

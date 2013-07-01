@@ -19,37 +19,43 @@
 #include <windows.h>
 #include <psapi.h>
 
-#define MAXWAIT 10000
-
-using namespace std;
-int CheckProcessName(DWORD processID, TCHAR *checkProcessName)
+bool CheckProcessName(DWORD processID, TCHAR *checkProcessName)
 {
     TCHAR processName[MAX_PATH];
 
     // Get a handle to the process.
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processID);
 
-    // Get the process name.
+	// Get the process name.
     if (NULL != hProcess)
     {
         HMODULE hMod;
         DWORD cbNeeded;
 
-        if (EnumProcessModules(hProcess, &hMod, sizeof(hMod), &cbNeeded))
+        if (0 != EnumProcessModules(hProcess, &hMod, sizeof(hMod), &cbNeeded))
         {
-            GetModuleBaseName(hProcess, hMod, processName, sizeof(processName)/sizeof(TCHAR));
-        }
-    }
+			if (0 != GetModuleBaseName(hProcess, hMod, processName, sizeof(processName)/sizeof(TCHAR)))
+			{
+				WCHAR * c = processName;
+				while (*c != L'\0')
+					*c++ = towlower(*c);
+				return !wcsncmp(processName, checkProcessName, MAX_PATH);
+			}
+		}
 
-    CloseHandle(hProcess);
-    
-    return !_wcsnicmp_l(processName, checkProcessName, MAX_PATH, 0);
+	    CloseHandle(hProcess);
+    }
+	return false;
 }
 
 DWORD FindProcess(WCHAR *name)
 {
     DWORD pProcessIds[1024];
     DWORD pBytesReturned;
+
+	//WCHAR * c = name;
+	//while (*c != L'\0')
+	//	*c++ = towlower(*c);
 
     EnumProcesses(pProcessIds, sizeof(pProcessIds), &pBytesReturned);
 
