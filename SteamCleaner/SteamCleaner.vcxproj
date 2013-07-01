@@ -80,6 +80,9 @@
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>Version.lib;Psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy "$(TargetPath)" "..\..\SteamCleanerSetup\SteamCleanerSetup\SourceFiles\$(TargetFileName)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Groups.cpp" />

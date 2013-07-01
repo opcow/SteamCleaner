@@ -118,9 +118,9 @@ bool MatchGroup(HWND hwnd)
 	{
 		// if matched we're done. if not keep trying
 		if (!wcsncmp(wnd_text, Groups[i], MAX_TEXT))
-			return true;
+			return false;
 	}
-	return false;
+	return true;
 }
 
 
@@ -142,7 +142,7 @@ void watcher_thread() {
 				for (int i = 0; i < args.count; i++)
 				{
 					GetWindowInfo(args.handles[i], &wi);
-//					if((wi.dwStyle & WS_VISIBLE) != 0)
+					if((wi.dwStyle & WS_VISIBLE) != 0)
 					{
 						if(MatchGroup(args.handles[i]))
 							PostMessage(args.handles[i], WM_CLOSE, 0, 0);
@@ -165,7 +165,10 @@ void get_pid_thread() {
 	while (!gbStopThread)
 	{
 		gSteamPID = FindProcess(gszProcessName);
-		std::this_thread::sleep_for(std::chrono::minutes(2));
+		if (gSteamPID == 0)
+			std::this_thread::sleep_for(std::chrono::seconds(10));
+		else
+			std::this_thread::sleep_for(std::chrono::minutes(2));
 	}
 }
 
