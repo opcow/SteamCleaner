@@ -53,10 +53,6 @@ DWORD FindProcess(WCHAR *name)
     DWORD pProcessIds[1024];
     DWORD pBytesReturned;
 
-	//WCHAR * c = name;
-	//while (*c != L'\0')
-	//	*c++ = towlower(*c);
-
     EnumProcesses(pProcessIds, sizeof(pProcessIds), &pBytesReturned);
 
     DWORD numProcesses = pBytesReturned / sizeof(DWORD);

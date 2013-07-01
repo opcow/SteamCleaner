@@ -150,10 +150,10 @@ void watcher_thread() {
 				}
 				args.count = 0;
 			}
-#ifdef DEBUG
-			std::this_thread::sleep_for(std::chrono::seconds(gDelay));
-#else
+#ifdef _DEBUG
 			std::this_thread::sleep_for(std::chrono::seconds(2));
+#else
+			std::this_thread::sleep_for(std::chrono::seconds(gDelay));
 #endif
 		}
 	}
