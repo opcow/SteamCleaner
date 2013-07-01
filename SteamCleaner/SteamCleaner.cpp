@@ -96,24 +96,32 @@ static BOOL CALLBACK EnumWindowsCallback( HWND hnd, LPARAM lParam )
 
 bool MatchGroup(HWND hwnd)
 {
-	WCHAR text[MAX_TEXT];
-	const wregex rgx(L"(.*)(\\s-\\s)(.*)");
+	WCHAR wnd_text[MAX_TEXT];
+	WCHAR * match_tail = L" - event started";
 	wsmatch match;
-	wstring s;
 
-	GetWindowText(hwnd, text, MAX_TEXT-1);
-	s = text;
-	if(regex_match(s, match, rgx) && match.size() == 4)
+	int tail_length, text_length, start_pos;
+
+	text_length = GetWindowText(hwnd, wnd_text, MAX_TEXT-1);
+
+
+	tail_length = wcsnlen(match_tail, MAX_TEXT);
+	start_pos = text_length - tail_length;
+
+	if (start_pos < 0 || wcsncmp(wnd_text + start_pos, match_tail, 255))
+		return false;
+
+	wnd_text[start_pos] = 0;
+
+	for (int i = 0; i < Groups.Size(); i++)
 	{
-		for (int i = 0; i < Groups.Size(); i++)
-		{
-			if(match[1] == Groups[i])
-				return false;
-		}
-		return true;
+		// if matched we're done. if not keep trying
+		if (!wcsncmp(wnd_text, Groups[i], MAX_TEXT))
+			return true;
 	}
 	return false;
 }
+
 
 void watcher_thread() {
 
@@ -133,7 +141,7 @@ void watcher_thread() {
 				for (int i = 0; i < args.count; i++)
 				{
 					GetWindowInfo(args.handles[i], &wi);
-					if((wi.dwStyle & WS_VISIBLE) != 0)
+//					if((wi.dwStyle & WS_VISIBLE) != 0)
 					{
 						if(MatchGroup(args.handles[i]))
 							PostMessage(args.handles[i], WM_CLOSE, 0, 0);
@@ -141,7 +149,11 @@ void watcher_thread() {
 				}
 				args.count = 0;
 			}
+#ifdef DEBUG
 			std::this_thread::sleep_for(std::chrono::seconds(gDelay));
+#else
+			std::this_thread::sleep_for(std::chrono::seconds(2));
+#endif
 		}
 	}
 	catch (...) { return; }
@@ -499,7 +511,11 @@ LRESULT CALLBACK IntervalEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 	{
 	case WM_CHAR:
 		if ((wParam >= 0x30 && wParam <= 0x39) || (wParam >= VK_BACK && wParam <= VK_DELETE))
+		{
+			if (GetWindowTextLength(hwnd) > 5)
+				return 0;
 			return CallWindowProc(OldIntervalEditProc, hwnd, msg, wParam, lParam);
+		}
 		return 0;
 	}
 	return CallWindowProc(OldIntervalEditProc, hwnd, msg, wParam, lParam);
