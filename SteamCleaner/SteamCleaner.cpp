@@ -42,53 +42,55 @@ using namespace std;
 #define ID_MENU_EXIT 140
 
 // Global Variables:
-HINSTANCE ghInst;
-NOTIFYICONDATA nidApp;
+HINSTANCE			ghInst;
+NOTIFYICONDATA		nidApp;
 
-WCHAR gszProcessName[] = L"steam.exe";
+WCHAR				gszProcessName[] = L"steam.exe";
 
-TCHAR gszTitle[MAX_LOADSTRING];
-TCHAR gszWindowClass[MAX_LOADSTRING];
-TCHAR gszApplicationToolTip[MAX_LOADSTRING];
-HINSTANCE ghInstance;
-HWND ghOpenWindow = 0;
+TCHAR				gszTitle[MAX_LOADSTRING];
+TCHAR				gszWindowClass[MAX_LOADSTRING];
+TCHAR				gszApplicationToolTip[MAX_LOADSTRING];
+HINSTANCE			ghInstance;
+HWND				ghOpenWindow = 0;
 
 // watcher thread vars
-wstring gMatchString;
-UINT gDelay;
-bool gbStopThread = true;
-bool gbSuspendThread= false;
-DWORD gSteamPID = 0;
+wstring				gMatchString;
+UINT				gDelay;
+bool				gbStopThread = true;
+bool				gbSuspendThread= false;
+DWORD				gSteamPID = 0;
 
-wstringstream gVersionString;
+wstringstream		gVersionString;
 
 // Forward declarations of functions included in this code module:
 ATOM				MyRegisterClass(HINSTANCE hInstance);
 BOOL				InitInstance(HINSTANCE, int);
 LRESULT CALLBACK	WndProc(HWND, UINT, WPARAM, LPARAM);
 
-DWORD FindProcess(WCHAR * ProcName);
+bool				CheckProcessName(const DWORD processID, const TCHAR *checkProcessName);
+DWORD				FindProcess(const WCHAR *name);
 
 // control subclass stuff
 typedef LRESULT (__stdcall * CONTROLPROC) (HWND, UINT, WPARAM, LPARAM);
-WNDPROC OldIntervalEditProc;
-void SubClassControl(HWND hWnd, CONTROLPROC NewProc);
-LRESULT CALLBACK IntervalEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+WNDPROC				OldIntervalEditProc;
+void				SubClassControl(HWND hWnd, CONTROLPROC NewProc);
+LRESULT CALLBACK	IntervalEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-CGroups Groups;
+CGroups				Groups;
 
 struct EnumWindowsCallbackArgs
 {
-    EnumWindowsCallbackArgs( DWORD p ) : pid( p ), count(0) {  }
-    const DWORD pid;
+    DWORD pid;
 	int count;
 	HWND handles[MAX_HANDLES];
 };
 
 static BOOL CALLBACK EnumWindowsCallback( HWND hnd, LPARAM lParam )
 {
-    EnumWindowsCallbackArgs *args = (EnumWindowsCallbackArgs *)lParam;
-    DWORD windowPID;
+    EnumWindowsCallbackArgs		*args;
+    DWORD						windowPID;
+
+	args = (EnumWindowsCallbackArgs *)lParam;
     (void)::GetWindowThreadProcessId( hnd, &windowPID );
     if ( windowPID == args->pid ) {
 		args->handles[args->count++] = hnd;
@@ -98,14 +100,11 @@ static BOOL CALLBACK EnumWindowsCallback( HWND hnd, LPARAM lParam )
 
 bool MatchGroup(HWND hwnd)
 {
-	WCHAR wnd_text[MAX_TEXT];
-	WCHAR * match_tail = L" - event started";
-	wsmatch match;
-
-	int tail_length, text_length, start_pos;
+	WCHAR		wnd_text[MAX_TEXT];
+	WCHAR *		match_tail = L" - event started";
+	int			tail_length, text_length, start_pos;
 
 	text_length = GetWindowText(hwnd, wnd_text, MAX_TEXT-1);
-
 	tail_length = wcsnlen(match_tail, MAX_TEXT);
 	start_pos = text_length - tail_length;
 
@@ -123,21 +122,26 @@ bool MatchGroup(HWND hwnd)
 	return true;
 }
 
-
 void watcher_thread() {
 
-	static DWORD pid = 0;
-	WINDOWINFO wi;
+	DWORD					pid = 0;
+	WINDOWINFO				wi;
+	EnumWindowsCallbackArgs	args;
 
 	try
 	{
 		while (!gbStopThread)
 		{
-			pid = gSteamPID;
+			args.pid = gSteamPID;
 
-			if (pid != 0 && !gbSuspendThread)
+			if (args.pid == 0)
 			{
-				EnumWindowsCallbackArgs args(pid);
+				std::this_thread::sleep_for(std::chrono::seconds(2));
+				continue;
+			}
+			if (!gbSuspendThread)
+			{
+				args.count = 0;
 				EnumWindows(EnumWindowsCallback, (LPARAM) &args);
 				for (int i = 0; i < args.count; i++)
 				{
@@ -162,26 +166,61 @@ void watcher_thread() {
 
 // thread to periodically refresh the steam pid
 void get_pid_thread() {
+
+	HANDLE hProcess;
+	DWORD rc;
+	std::chrono::seconds	shortWait(10);
+	std::chrono::seconds	longWait(180);
+
 	while (!gbStopThread)
 	{
 		gSteamPID = FindProcess(gszProcessName);
 		if (gSteamPID == 0)
-			std::this_thread::sleep_for(std::chrono::seconds(10));
+			std::this_thread::sleep_for(shortWait);
 		else
-			std::this_thread::sleep_for(std::chrono::minutes(2));
+		{
+			hProcess = OpenProcess(SYNCHRONIZE, FALSE, gSteamPID);
+			if (hProcess != 0)
+			{
+				rc = WaitForSingleObject (hProcess, INFINITE);
+				CloseHandle(hProcess);
+				gSteamPID = 0;
+				if (rc == WAIT_FAILED)
+					break;
+			}
+		}
+	}
+	// if WaitForSingleObject fails revert to old way of checking
+	while (!gbStopThread)
+	{
+		while (gSteamPID == 0)
+		{
+			gSteamPID = FindProcess(gszProcessName);
+			std::this_thread::sleep_for(shortWait);
+		}
+		// if we have the pid, don't enumerate the processes
+		// just check the name. enumerate processes if not matching
+		if (!CheckProcessName(gSteamPID, gszProcessName))
+		{
+			do {
+				gSteamPID = FindProcess(gszProcessName);
+				std::this_thread::sleep_for(shortWait);
+			} while (gSteamPID == 0);
+		}
+		std::this_thread::sleep_for(longWait);
 	}
 }
 
 bool SavePrefs()
 {
-	wstring FilePath;
-	LPWSTR wstrPrefsPath = 0;
+	wstring		FilePath;
+	LPWSTR		wstrPrefsPath = 0;
 
 	SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, 0, &wstrPrefsPath);
 
 	FilePath = wstrPrefsPath;
 	FilePath += L"\\Steam Cleaner";
-	BOOL bUsedDefChar = CreateDirectoryW(FilePath.data(), 0);
+	CreateDirectoryW(FilePath.data(), 0);
 	FilePath += L"\\prefs.ini";
 
 	std::wofstream output(FilePath);
@@ -191,20 +230,20 @@ bool SavePrefs()
 		for (int i = 0; i < Groups.Size(); i++)
 			output << Groups[i];
 	}
-
 	return true;
 }
 
 bool LoadPrefs()
 {
-	wstring FilePath;
-	LPWSTR wstrPrefsPath = 0;
+	wstring		FilePath;
+	LPWSTR		wstrPrefsPath = 0;
+	wstring		s;
 
 	SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, 0, &wstrPrefsPath);
 
 	FilePath = wstrPrefsPath;
 	FilePath += L"\\Steam Cleaner";
-	BOOL bUsedDefChar = CreateDirectoryW(FilePath.data(), 0);
+	CreateDirectoryW(FilePath.data(), 0);
 	FilePath += L"\\prefs.ini";
 
 	std::wifstream input(FilePath);
@@ -217,7 +256,6 @@ bool LoadPrefs()
 		if (input == 0)
 			return false;
 	}
-	wstring s;
 	getline(input, s);
 	gDelay = _wtol(s.c_str());
 
@@ -240,8 +278,8 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 {
 	LoadPrefs();
 
-	MSG msg;
-	HACCEL hAccelTable;
+	MSG		msg;
+	HACCEL	hAccelTable;
 
 	// Initialize global strings
 	LoadString(hInstance, IDS_APP_TITLE, gszTitle, MAX_LOADSTRING);
@@ -254,9 +292,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 
 	// Perform application initialization:
 	if (!InitInstance (hInstance, nCmdShow))
-	{
 		return FALSE;
-	}
 
 	hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_SC));
 
@@ -265,7 +301,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	std::thread t2(watcher_thread);
 
 	// Main message loop:
-	while (int ret = GetMessage(&msg, NULL, 0, 0))
+	while (GetMessage(&msg, NULL, 0, 0))
 	{
 		if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
 		{
@@ -288,7 +324,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 
 ATOM MyRegisterClass(HINSTANCE hInstance)
 {
-	WNDCLASSEX wcex;
+	WNDCLASSEX	wcex;
 
 	wcex.cbSize = sizeof(WNDCLASSEX);
 
@@ -309,7 +345,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
-	HWND hWnd;
+	HWND	hWnd;
 
 	ghInst = hInstance; // Store instance handle in our global variable
 
@@ -333,12 +369,12 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 void MakegVersionString(HINSTANCE hInstance)
 {
-	DWORD dwVerInfoSize;
-	DWORD dwHnd;
-	VS_FIXEDFILEINFO *pFixedInfo;	// pointer to fixed file info structure
-	UINT    uVersionLen;			// Current length of full version string
-	WCHAR AppPathName[MAX_PATH];
-	WCHAR AppName[MAX_LOADSTRING+1];
+	DWORD				dwVerInfoSize;
+	DWORD				dwHnd;
+	VS_FIXEDFILEINFO *	pFixedInfo;	// pointer to fixed file info structure
+	UINT				uVersionLen;			// Current length of full version string
+	WCHAR				AppPathName[MAX_PATH];
+	WCHAR				AppName[MAX_LOADSTRING+1];
 
 	ZeroMemory(AppName, (MAX_LOADSTRING+1) * sizeof(WCHAR));
 
@@ -367,18 +403,11 @@ void AppendTextToEditCtrl(HWND hWndEdit, LPCTSTR pszText)
    Edit_ReplaceSel(hWndEdit, L"\r\n");
 }
 
-void InitIntervalEditBox(HWND hDlg)
-{
-	HWND hEdit = GetDlgItem(hDlg, IDC_EDIT_INTERVAL);
-	SetWindowText(hEdit, to_wstring(gDelay).c_str());
-}
-
 void ReadIntervalEditBox(HWND hDlg)
 {
-	HWND hEdit = GetDlgItem(hDlg, IDC_EDIT_INTERVAL);
 	WCHAR text[6];
 	memset(text, 0, 6 * sizeof(WCHAR));
-	GetWindowText(hEdit, text, 5);
+	GetWindowText(GetDlgItem(hDlg, IDC_EDIT_INTERVAL), text, 5);
 	gDelay = _wtol(text);
 }
 
@@ -399,10 +428,10 @@ void ReadNamesEditBox(HWND hDlg)
 
 	for (int i = 0; i < Edit_GetLineCount(hEdit); i++)
 	{
-		int c = Edit_GetLine(hEdit, i, line, 255);
-		line[c] = L'\0';
-		if (c != 0)
-			Groups.Push(line, c);
+		int count = Edit_GetLine(hEdit, i, line, 255);
+		line[count] = L'\0';
+		if (count != 0)
+			Groups.Push(line, count);
 	}
 }
 
@@ -418,7 +447,7 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 		SubClassControl(GetDlgItem(hDlg, IDC_EDIT_INTERVAL), IntervalEditProc);
 		MakegVersionString(ghInstance);
 		SetWindowText(GetDlgItem(hDlg, IDC_STATIC_APP), gVersionString.str().data());
-		InitIntervalEditBox(hDlg);
+		SetWindowText(GetDlgItem(hDlg, IDC_EDIT_INTERVAL), to_wstring(gDelay).c_str());
 		InitNamesEditBox(hDlg);
 		return (INT_PTR)TRUE;
 	case WM_KEYDOWN:
@@ -510,7 +539,8 @@ void SubClassControl(HWND hWnd, CONTROLPROC NewProc)
 	SetWindowLong(hWnd, GWL_WNDPROC, (LONG_PTR)NewProc);
 }
 
-LRESULT CALLBACK IntervalEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK IntervalEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
 	switch(msg)
 	{
 	case WM_CHAR:

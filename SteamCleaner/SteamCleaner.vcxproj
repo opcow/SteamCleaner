@@ -82,7 +82,7 @@
     </Link>
     <PostBuildEvent>
       <Command>copy "$(TargetPath)" "..\..\SteamCleanerSetup\SteamCleanerSetup\SourceFiles\$(TargetFileName)"
-"C:\Program Files\7-Zip\7z.exe" a -tzip "C:\Users\mcrane\Documents\kl0wn Site\SteamCleaner_ver.zip" "$(TargetPath)"</Command>
+"C:\Program Files\7-Zip\7z.exe" a -tzip "C:\Users\mcrane\Documents\kl0wn Site\$(TargetName)(ver).zip" "$(TargetPath)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

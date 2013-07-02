@@ -19,7 +19,7 @@
 #include <windows.h>
 #include <psapi.h>
 
-bool CheckProcessName(DWORD processID, TCHAR *checkProcessName)
+bool CheckProcessName(const DWORD processID, const TCHAR *checkProcessName)
 {
     TCHAR processName[MAX_PATH];
 
@@ -42,13 +42,12 @@ bool CheckProcessName(DWORD processID, TCHAR *checkProcessName)
 				return !wcsncmp(processName, checkProcessName, MAX_PATH);
 			}
 		}
-
 	    CloseHandle(hProcess);
     }
 	return false;
 }
 
-DWORD FindProcess(WCHAR *name)
+DWORD FindProcess(const WCHAR *name)
 {
     DWORD pProcessIds[1024];
     DWORD pBytesReturned;
