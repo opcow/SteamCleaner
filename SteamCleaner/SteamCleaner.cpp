@@ -36,22 +36,27 @@ using namespace std;
 #define MAX_HANDLES 256
 #define MAX_TEXT 256
 #define MAX_LOADSTRING 100
-#define	WM_USER_SHELLICON WM_USER + 1
+#define	WM_USER_SHELLICON				WM_USER + 1
+#define WM_USER_NOTIFICATION_STATUS		WM_USER + 2
 
 #define ID_MENU_ABOUT 100
 #define ID_MENU_EXIT 140
 
 // Global Variables:
 HINSTANCE			ghInst;
-NOTIFYICONDATA		nidApp;
+NOTIFYICONDATA		gnidApp;
+HICON				ghIconGreen, ghIconRed;
 
 WCHAR				gszProcessName[] = L"steam.exe";
 
 TCHAR				gszTitle[MAX_LOADSTRING];
 TCHAR				gszWindowClass[MAX_LOADSTRING];
-TCHAR				gszApplicationToolTip[MAX_LOADSTRING];
+TCHAR				gszApplicationToolTipG[MAX_LOADSTRING];
+TCHAR				gszApplicationToolTipR[MAX_LOADSTRING];
 HINSTANCE			ghInstance;
 HWND				ghOpenWindow = 0;
+HWND				ghAppWindow = 0;
+int					gPopupCount = 0;
 
 // watcher thread vars
 wstring				gMatchString;
@@ -64,7 +69,7 @@ wstringstream		gVersionString;
 
 // Forward declarations of functions included in this code module:
 ATOM				MyRegisterClass(HINSTANCE hInstance);
-BOOL				InitInstance(HINSTANCE, int);
+HWND				InitInstance(HINSTANCE, int);
 LRESULT CALLBACK	WndProc(HWND, UINT, WPARAM, LPARAM);
 
 bool				CheckProcessName(const DWORD processID, const TCHAR *checkProcessName);
@@ -149,7 +154,11 @@ void watcher_thread() {
 					if((wi.dwStyle & WS_VISIBLE) != 0)
 					{
 						if(MatchGroup(args.handles[i]))
+						{
 							PostMessage(args.handles[i], WM_CLOSE, 0, 0);
+							gPopupCount++;
+							SendMessage(ghAppWindow, WM_USER_NOTIFICATION_STATUS, 1, 0);
+						}
 					}
 				}
 				args.count = 0;
@@ -176,12 +185,16 @@ void get_pid_thread() {
 	{
 		gSteamPID = FindProcess(gszProcessName);
 		if (gSteamPID == 0)
+		{
+			SendMessage(ghAppWindow, WM_USER_NOTIFICATION_STATUS, 0, 0);
 			std::this_thread::sleep_for(shortWait);
+		}
 		else
 		{
 			hProcess = OpenProcess(SYNCHRONIZE, FALSE, gSteamPID);
 			if (hProcess != 0)
 			{
+				SendMessage(ghAppWindow, WM_USER_NOTIFICATION_STATUS, 1, 0);
 				rc = WaitForSingleObject (hProcess, INFINITE);
 				CloseHandle(hProcess);
 				gSteamPID = 0;
@@ -198,14 +211,17 @@ void get_pid_thread() {
 			gSteamPID = FindProcess(gszProcessName);
 			std::this_thread::sleep_for(shortWait);
 		}
+		SendMessage(ghAppWindow, WM_USER_NOTIFICATION_STATUS, (WPARAM) 1, 0);
 		// if we have the pid, don't enumerate the processes
 		// just check the name. enumerate processes if not matching
 		if (!CheckProcessName(gSteamPID, gszProcessName))
 		{
+			SendMessage(ghAppWindow, WM_USER_NOTIFICATION_STATUS, (WPARAM) 0, 0);
 			do {
 				gSteamPID = FindProcess(gszProcessName);
 				std::this_thread::sleep_for(shortWait);
 			} while (gSteamPID == 0);
+			SendMessage(ghAppWindow, WM_USER_NOTIFICATION_STATUS, (WPARAM) 1, 0);
 		}
 		std::this_thread::sleep_for(longWait);
 	}
@@ -291,7 +307,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	CoInitializeEx(NULL, COINIT_MULTITHREADED);
 
 	// Perform application initialization:
-	if (!InitInstance (hInstance, nCmdShow))
+	if (0 == (ghAppWindow = InitInstance (hInstance, nCmdShow)))
 		return FALSE;
 
 	hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_SC));
@@ -333,7 +349,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 	wcex.cbClsExtra		= 0;
 	wcex.cbWndExtra		= 0;
 	wcex.hInstance		= hInstance;
-	wcex.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_SMALL));
+	wcex.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON_GREEN));
 	wcex.hCursor		= LoadCursor(NULL, IDC_ARROW);
 	wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
 	wcex.lpszMenuName	= MAKEINTRESOURCE(IDC_SC);
@@ -343,7 +359,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 	return RegisterClassEx(&wcex);
 }
 
-BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
+HWND InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
 	HWND	hWnd;
 
@@ -353,18 +369,24 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 		CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, NULL, NULL, hInstance, NULL);
 
 	if (!hWnd)
-		return FALSE;
+		return 0;
 
-	nidApp.cbSize = sizeof(NOTIFYICONDATA);
-	nidApp.hWnd = (HWND) hWnd;
-	nidApp.uID = IDI_SMALL; 
-	nidApp.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-	nidApp.uCallbackMessage = WM_USER_SHELLICON;
-	LoadString(hInstance, IDS_APPTOOLTIP,nidApp.szTip,MAX_LOADSTRING);
-	nidApp.hIcon = LoadIcon(hInstance,(LPCTSTR)MAKEINTRESOURCE(IDI_SMALL));
-	Shell_NotifyIcon(NIM_ADD, &nidApp); 
+	ghIconGreen = LoadIcon(hInstance,(LPCTSTR)MAKEINTRESOURCE(IDI_ICON_GREEN));
+	ghIconRed = LoadIcon(hInstance,(LPCTSTR)MAKEINTRESOURCE(IDI_ICON_RED));
 
-	return TRUE;
+	LoadString(hInstance, IDS_APPTOOLTIP,gszApplicationToolTipG,MAX_LOADSTRING);
+	LoadString(hInstance, IDS_APPTOOLTIP_RED,gszApplicationToolTipR,MAX_LOADSTRING);
+
+	gnidApp.cbSize = sizeof(NOTIFYICONDATA);
+	gnidApp.hWnd = (HWND) hWnd;
+	gnidApp.uID = IDI_ICON_RED; 
+	gnidApp.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+	gnidApp.uCallbackMessage = WM_USER_SHELLICON;
+	wcsncpy_s(gnidApp.szTip, 64, gszApplicationToolTipR, _TRUNCATE);
+	gnidApp.hIcon = ghIconRed;// LoadIcon(hInstance,(LPCTSTR)MAKEINTRESOURCE(IDI_ICON_RED));
+	Shell_NotifyIcon(NIM_ADD, &gnidApp);
+
+	return hWnd;
 }
 
 void MakegVersionString(HINSTANCE hInstance)
@@ -482,9 +504,28 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	wstring MenuString, TempString;
 	int wmId, wmEvent;
 
+	WCHAR szBlockedToopTip[16];
+
 	switch (message)
 	{
 	case WM_CREATE:
+		return TRUE;
+	case WM_USER_NOTIFICATION_STATUS:
+		DestroyIcon(gnidApp.hIcon);
+		if (wParam == 0)
+		{
+			gnidApp.hIcon = ghIconRed;
+			wcsncpy_s(gnidApp.szTip, 64, gszApplicationToolTipR, _TRUNCATE);
+		}
+		else
+		{
+			gnidApp.hIcon = ghIconGreen;
+			wcsncpy_s(gnidApp.szTip, 64, gszApplicationToolTipG, _TRUNCATE);
+		}
+		wcscat_s(gnidApp.szTip, 64, L"\r\nPopups blocked: ");
+		_itow_s(gPopupCount, szBlockedToopTip, 10);
+		wcscat_s(gnidApp.szTip, 64, szBlockedToopTip);
+		Shell_NotifyIcon(NIM_MODIFY,  &gnidApp);
 		return TRUE;
 	case WM_USER_SHELLICON: 
 		// systray msg callback 
@@ -517,7 +558,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			DialogBox(ghInst, MAKEINTRESOURCE(IDD_DIALOG_ABOUT), hWnd, About);
 			return TRUE;
 		case ID_MENU_EXIT:
-			Shell_NotifyIcon(NIM_DELETE,&nidApp);
+			Shell_NotifyIcon(NIM_DELETE,&gnidApp);
 			SendMessage(hWnd, WM_CLOSE, 0, 0);
 			DestroyWindow(hWnd);
 			return TRUE;
